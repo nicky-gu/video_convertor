@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <title>Whisper 零成本转写</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;margin:2rem;line-height:1.5}
+    #log{margin-top:1rem;color:#555}
+    #down{display:none;margin-top:1rem;font-size:1.1rem}
+  </style>
+</head>
+<body>
+  <h1>上传视频 → 免费 GPU 转写</h1>
+  <input type="file" id="file" accept="video/*"/>
+  <button id="go" disabled>开始转写</button>
+  <div id="log"></div>
+  <a id="down">下载字幕 (.srt)</a>
+
+  <script type="module">
+    import {upload} from './js/upload.js';
+    const $ = id => document.getElementById(id);
+    $('file').addEventListener('change', e => $('go').disabled = !e.target.files.length);
+    $('go').onclick = async ()=>{
+      const f = $('file').files[0];
+      log('读取文件…');
+      const audio = await extractAudio(f);
+      log('上传音频…');
+      const key = await upload(audio);
+      log('已排队，等待 GPU…（约 1-3 分钟）');
+      await poll(key);
+    };
+    async function extractAudio(file){
+      const {FFmpeg} = await import('https://unpkg.com/@ffmpeg/ffmpeg@0.12.9/dist/esm/index.js');
+      const ff = new FFmpeg(); await ff.load();
+      await ff.writeFile('in', new Uint8Array(await file.arrayBuffer()));
+      await ff.exec(['-i','in','-ar','16000','-ac','1','-f','wav','out.wav']);
+      return await ff.readFile('out.wav');
+    }
+    async function poll(key){
+      const t = setInterval(async ()=>{
+        const r = await fetch(`${window.WORKER_URL}/status?key=${key}`);
+        if(r.ok){
+          clearInterval(t);
+          $('down').href = await r.text();
+          $('down').style.display = 'inline';
+          log('✅ 转写完成！');
+        }
+      },3000);
+    }
+    function log(msg){ $('log').textContent = msg; }
+  </script>
+  <script src="./js/config.js"></script>
+</body>
+</html>
